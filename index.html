@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SPACE VADER</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      overflow: hidden;
+    }
+    canvas { display: block; image-rendering: pixelated; cursor: none; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const W = 800, H = 600;
+canvas.width = W; canvas.height = H;
+
+// ──────────────────────────────────────────────
+// AUDIO
+// ──────────────────────────────────────────────
+let ac = null;
+function initAudio() { if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)(); }
+function beep(freq, dur, type = 'square', vol = 0.18) {
+  if (!ac) return;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
+  o.connect(g); g.connect(ac.destination);
+  o.start(); o.stop(ac.currentTime + dur);
+}
+const SFX = {
+  shoot:    () => beep(820, 0.08, 'square', 0.15),
+  explode:  () => beep(140, 0.28, 'sawtooth', 0.35),
+  ufo:      () => { beep(500, 0.07, 'square', 0.1); setTimeout(() => beep(700, 0.07, 'square', 0.1), 75); },
+  march:    (t) => beep([110, 87, 110, 78][t % 4], 0.05, 'square', 0.1),
+  die:      () => {
+    beep(400, 0.1, 'sawtooth', 0.45);
+    setTimeout(() => beep(280, 0.15, 'sawtooth', 0.45), 110);
+    setTimeout(() => beep(180, 0.2,  'sawtooth', 0.45), 260);
+    setTimeout(() => beep(80,  0.4,  'sawtooth', 0.45), 480);
+  },
+};
+
+// ──────────────────────────────────────────────
+// SPRITE SHEET IMAGE  (loaded from directory)
+// ──────────────────────────────────────────────
+const sheetImg = new Image();
+sheetImg.src = 'spacevader charecters.png';
+
+// ──────────────────────────────────────────────
+// PIXEL ART SPRITES  (inspired by the image chars)
+// Each string row must have the same length.
+// X = filled pixel,  space = empty.
+// ──────────────────────────────────────────────
+function S(rows) { return rows.map(r => [...r].map(c => c !== ' ')); }
+
+const SPR = {
+  // ── Octopus – large YELLOW invader (10×8) ──
+  oct1: S([
+    '  XXXXXX  ',
+    ' XXXXXXXX ',
+    'XX XXXX XX',
+    'XXXXXXXXXX',
+    ' XXXXXXXX ',
+    '  XX  XX  ',
+    ' X  XX  X ',
+    'X        X',
+  ]),
+  oct2: S([
+    '  XXXXXX  ',
+    ' XXXXXXXX ',
+    'XX XXXX XX',
+    'XXXXXXXXXX',
+    ' XXXXXXXX ',
+    '  XX  XX  ',
+    'X  XX  X  ',
+    '  X    X  ',
+  ]),
+  // ── Crab – medium CYAN invader (11×8) ──
+  cra1: S([
+    'X         X',
+    ' X       X ',
+    ' XXXXXXXXX ',
+    'XX X X X XX',
+    'XXXXXXXXXXX',
+    'X XXXXXXX X',
+    'X X     X X',
+    '  XX   XX  ',
+  ]),
+  cra2: S([
+    'X         X',
+    '   X   X   ',
+    ' XXXXXXXXX ',
+    'XX X X X XX',
+    'XXXXXXXXXXX',
+    ' XXXXXXXXX ',
+    '  X     X  ',
+    'X X     X X',
+  ]),
+  // ── Squid – small GREEN invader (8×8) ──
+  squ1: S([
+    '   XX   ',
+    '  XXXX  ',
+    ' XXXXXX ',
+    'XX XX XX',
+    'XXXXXXXX',
+    ' XXXXXX ',
+    '  X  X  ',
+    ' X    X ',
+  ]),
+  squ2: S([
+    '   XX   ',
+    '  XXXX  ',
+    ' XXXXXX ',
+    'XX XX XX',
+    'XXXXXXXX',
+    ' XXXXXX ',
+    'X  XX  X',
+    '  X  X  ',
+  ]),
+  // ── UFO – MAGENTA flying saucer (14×6) ──
+  ufo: S([
+    '    XXXXXX    ',
+    '  XXXXXXXXXX  ',
+    ' X X X X X X  ',
+    'XXXXXXXXXXXXXX',
+    ' XXXXXXXXXXXX ',
+    '   XX    XX   ',
+  ]),
+  // ── Player ship (13×8) ──
+  player: S([
+    '      X      ',
+    '     XXX     ',
+    '     XXX     ',
+    '  XXXXXXXXX  ',
+    ' XXXXXXXXXXX ',
+    'XXXXXXXXXXXXX',
+    'X  X     X  X',
+    'X           X',
+  ]),
+  // ── Explosion (10×8) ──
+  boom: S([
+    ' X  X X  X ',
+    'X X X X X X',
+    '  X XXXX X ',
+    'XXXXXXXXXXX',
+    'XXXXXXXXXXX',
+    '  X XXXX X ',
+    'X X X X X X',
+    ' X  X X  X ',
+  ]),
+};
+
+// Helper: draw a pixel-art sprite
+function drawSpr(spr, x, y, scale, color) {
+  ctx.fillStyle = color;
+  spr.forEach((row, ry) =>
+    row.forEach((on, rx) => {
+      if (on) ctx.fillRect(x + rx * scale, y + ry * scale, scale, scale);
+    })
+  );
+}
+
+function sprW(spr, sc) { return spr[0].length * sc; }
+function sprH(spr, sc) { return spr.length * sc; }
+
+// ──────────────────────────────────────────────
+// STARFIELD
+// ──────────────────────────────────────────────
+const STARS = Array.from({ length: 180 }, () => ({
+  x: Math.random() * W, y: Math.random() * H,
+  b: Math.random(), s: Math.random() * 1.5 + 0.3,
+}));
+
+// ──────────────────────────────────────────────
+// GAME STATE
+// ──────────────────────────────────────────────
+let state = 'menu';
+let score = 0, hi = 0, lives = 3, level = 1;
+let fc = 0;        // frame counter
+const keys = {};
+
+// enemies
+let enemies = [];
+let eDir = 1, eMoveT = 0, eMoveI = 50, eAnimF = 0, eMarchT = 0;
+
+// bullets
+let pBullets = [], eBullets = [];
+let pCooldown = 0;
+
+// shields
+let shields = [];
+
+// player
+let player = null, pDying = false, pDyTimer = 0;
+
+// ufo
+let ufo = null, ufoT = 0;
+
+// particles
+let particles = [];
+
+// ──────────────────────────────────────────────
+// SHIELD CONSTRUCTION
+// ──────────────────────────────────────────────
+function makeShield(x, y) {
+  const W_S = 15, H_S = 10;
+  const pix = [];
+  for (let r = 0; r < H_S; r++) {
+    pix.push([]);
+    for (let c = 0; c < W_S; c++) {
+      // arch: cut bottom-center gap (legs of bunker)
+      const botGap = r >= H_S - 3 && c >= 4 && c <= 10;
+      pix[r].push(botGap ? 0 : 1);
+    }
+  }
+  return { x, y, pix, pw: 4, ph: 4, cols: W_S, rows: H_S };
+}
+
+function shieldCollide(sh, bx, by, bw, bh) {
+  for (let r = 0; r < sh.rows; r++)
+    for (let c = 0; c < sh.cols; c++) {
+      if (!sh.pix[r][c]) continue;
+      const sx = sh.x + c * sh.pw, sy = sh.y + r * sh.ph;
+      if (bx < sx + sh.pw && bx + bw > sx && by < sy + sh.ph && by + bh > sy)
+        return { r, c };
+    }
+  return null;
+}
+
+function damageShield(sh, bx, by, rad = 1) {
+  const c0 = Math.round((bx - sh.x) / sh.pw);
+  const r0 = Math.round((by - sh.y) / sh.ph);
+  for (let dr = -rad; dr <= rad; dr++)
+    for (let dc = -rad; dc <= rad; dc++) {
+      const r = r0 + dr, c = c0 + dc;
+      if (r >= 0 && r < sh.rows && c >= 0 && c < sh.cols) sh.pix[r][c] = 0;
+    }
+}
+
+// ──────────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────────
+function initGame() {
+  score = 0; lives = 3; level = 1;
+  initLevel();
+}
+
+function initLevel() {
+  enemies = []; pBullets = []; eBullets = []; particles = [];
+  pDying = false; pCooldown = 0; ufoT = 0; ufo = null;
+
+  const COLS = 11, ROWS = 5;
+  const startX = 65, startY = 85;
+  const gapX = 58, gapY = 50;
+
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const type = row === 0 ? 'squ' : row <= 2 ? 'cra' : 'oct';
+      const sc = 3;
+      const sp = SPR[type + '1'];
+      enemies.push({
+        type, col, row,
+        x: startX + col * gapX,
+        y: startY + row * gapY,
+        w: sprW(sp, sc), h: sprH(sp, sc), sc,
+        alive: true, exploding: false, eT: 0, frame: 0,
+      });
+    }
+  }
+
+  shields = [];
+  for (let i = 0; i < 4; i++) shields.push(makeShield(110 + i * 175, H - 130));
+
+  const ps = SPR.player, psc = 3;
+  player = {
+    x: W / 2 - sprW(ps, psc) / 2,
+    y: H - 68,
+    w: sprW(ps, psc), h: sprH(ps, psc), sc: psc,
+    alive: true,
+  };
+
+  eDir = 1; eMoveT = 0;
+  eMoveI = Math.max(8, 55 - (level - 1) * 5);
+  eMarchT = 0; eAnimF = 0;
+}
+
+// ──────────────────────────────────────────────
+// UPDATE
+// ──────────────────────────────────────────────
+function aliveEnemies() { return enemies.filter(e => e.alive && !e.exploding); }
+
+function update() {
+  fc++;
+  if (state !== 'playing') return;
+
+  if (pDying) {
+    pDyTimer++;
+    updateParticles();
+    if (pDyTimer > 120) {
+      pDying = false;
+      if (lives <= 0) { state = 'gameover'; }
+      else { player.alive = true; }
+    }
+    return;
+  }
+
+  // ── Player movement ──
+  if ((keys['ArrowLeft'] || keys['a']) && player.x > 0) player.x -= 5;
+  if ((keys['ArrowRight'] || keys['d']) && player.x + player.w < W) player.x += 5;
+
+  // ── Player shoot ──
+  pCooldown--;
+  if ((keys[' '] || keys['z']) && pCooldown <= 0 && pBullets.filter(b => b.alive).length < 1) {
+    pBullets.push({ x: player.x + player.w / 2 - 1, y: player.y - 10, w: 3, h: 14, dy: -11, alive: true });
+    SFX.shoot();
+    pCooldown = 12;
+  }
+
+  // ── Update player bullets ──
+  for (const b of pBullets) {
+    if (!b.alive) continue;
+    b.y += b.dy;
+    if (b.y < 0) { b.alive = false; continue; }
+
+    // hit UFO
+    if (ufo && !ufo.dying &&
+        b.x < ufo.x + ufo.w && b.x + b.w > ufo.x &&
+        b.y < ufo.y + ufo.h && b.y + b.h > ufo.y) {
+      b.alive = false;
+      ufo.dying = true; ufo.dieT = 0;
+      ufo.pts = [50, 100, 150, 300][Math.floor(Math.random() * 4)];
+      score += ufo.pts; if (score > hi) hi = score;
+      SFX.explode(); continue;
+    }
+
+    // hit enemies
+    let hit = false;
+    for (const e of enemies) {
+      if (!e.alive || e.exploding) continue;
+      if (b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
+        e.exploding = true; e.eT = 0;
+        b.alive = false; hit = true;
+        score += e.type === 'squ' ? 30 : e.type === 'cra' ? 20 : 10;
+        if (score > hi) hi = score;
+        // speed up
+        const rem = aliveEnemies().length;
+        eMoveI = Math.max(5, eMoveI - Math.floor(rem < 10 ? 3 : 1));
+        SFX.explode(); break;
+      }
+    }
+    if (hit) continue;
+
+    // hit shield
+    for (const s of shields) {
+      const h2 = shieldCollide(s, b.x, b.y, b.w, b.h);
+      if (h2) { damageShield(s, b.x, b.y); b.alive = false; break; }
+    }
+  }
+
+  // ── Enemy movement ──
+  eMoveT++;
+  if (eMoveT >= eMoveI) {
+    eMoveT = 0;
+    eAnimF ^= 1;
+    SFX.march(eMarchT++);
+
+    const alive = aliveEnemies();
+    if (!alive.length) {
+      state = 'levelcomplete';
+      setTimeout(() => { level++; initLevel(); state = 'playing'; }, 2200);
+      return;
+    }
+
+    let drop = false;
+    for (const e of alive) {
+      if (eDir > 0 && e.x + e.w > W - 18) { drop = true; break; }
+      if (eDir < 0 && e.x < 18) { drop = true; break; }
+    }
+
+    if (drop) {
+      eDir *= -1;
+      enemies.forEach(e => { if (e.alive) e.y += 18; });
+      eMoveI = Math.max(5, eMoveI - 2);
+    } else {
+      enemies.forEach(e => { if (e.alive) { e.x += eDir * 8; e.frame = eAnimF; } });
+    }
+  }
+
+  // ── Enemy shooting ──
+  if (fc % Math.max(18, 65 - level * 5) === 0) {
+    const cols = {};
+    enemies.forEach(e => {
+      if (e.alive && !e.exploding)
+        if (!cols[e.col] || e.row > cols[e.col].row) cols[e.col] = e;
+    });
+    const shooters = Object.values(cols);
+    if (shooters.length && eBullets.filter(b => b.alive).length < 3 + level) {
+      const sh = shooters[Math.floor(Math.random() * shooters.length)];
+      eBullets.push({
+        x: sh.x + sh.w / 2 - 2, y: sh.y + sh.h,
+        w: 4, h: 12, dy: 4 + level * 0.5,
+        phase: 0, alive: true,
+      });
+    }
+  }
+
+  // ── Update enemy bullets ──
+  for (const b of eBullets) {
+    if (!b.alive) continue;
+    b.phase += 0.35;
+    b.y += b.dy;
+    if (b.y > H) { b.alive = false; continue; }
+    const bx = b.x + Math.sin(b.phase) * 2.5;
+
+    // hit player
+    if (player.alive && !pDying) {
+      if (bx < player.x + player.w && bx + b.w > player.x &&
+          b.y < player.y + player.h && b.y + b.h > player.y) {
+        b.alive = false;
+        lives--;
+        pDying = true; pDyTimer = 0;
+        player.alive = false;
+        spawnParticles(player.x + player.w / 2, player.y + player.h / 2);
+        SFX.die(); continue;
+      }
+    }
+
+    // hit shield
+    for (const s of shields) {
+      const h2 = shieldCollide(s, bx, b.y, b.w, b.h);
+      if (h2) { damageShield(s, bx, b.y); b.alive = false; break; }
+    }
+  }
+
+  // ── Update enemy explosions ──
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    if (e.exploding) { e.eT++; if (e.eT > 22) { e.alive = false; e.exploding = false; } }
+    // enemies reached player row → game over
+    if (e.alive && !e.exploding && e.y + e.h >= player.y) { state = 'gameover'; return; }
+    // enemies destroy bunkers they overlap
+    if (e.alive && !e.exploding) {
+      for (const s of shields) {
+        if (e.x + e.w > s.x && e.x < s.x + s.cols * s.pw &&
+            e.y + e.h > s.y && e.y < s.y + s.rows * s.ph) {
+          for (let r = 0; r < s.rows; r++) s.pix[r].fill(0);
+        }
+      }
+    }
+  }
+
+  // ── UFO ──
+  ufoT++;
+  if (!ufo && ufoT > 420 + Math.random() * 200) {
+    ufoT = 0;
+    const sp = SPR.ufo, sc = 3;
+    const uw = sprW(sp, sc), uh = sprH(sp, sc);
+    const goR = Math.random() > 0.5;
+    ufo = { x: goR ? -uw : W, y: 48, w: uw, h: uh, dx: goR ? 2.5 : -2.5, dying: false, dieT: 0, pts: 0 };
+    SFX.ufo();
+  }
+  if (ufo) {
+    if (ufo.dying) {
+      ufo.dieT++;
+      if (ufo.dieT > 55) ufo = null;
+    } else {
+      ufo.x += ufo.dx;
+      if (fc % 22 === 0) SFX.ufo();
+      if (ufo.x > W + ufo.w || ufo.x < -ufo.w) ufo = null;
+    }
+  }
+
+  // cleanup
+  pBullets = pBullets.filter(b => b.alive);
+  eBullets = eBullets.filter(b => b.alive);
+}
+
+// ──────────────────────────────────────────────
+// PARTICLES
+// ──────────────────────────────────────────────
+function spawnParticles(cx, cy) {
+  particles = [];
+  const cols = ['#ff6600', '#ff2200', '#ffaa00', '#ffff44', '#ff4444'];
+  for (let i = 0; i < 22; i++) {
+    const a = Math.random() * Math.PI * 2, sp = Math.random() * 4 + 1;
+    particles.push({
+      x: cx, y: cy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
+      life: 70, max: 70, size: Math.random() * 5 + 2,
+      col: cols[Math.floor(Math.random() * cols.length)],
+    });
+  }
+}
+function updateParticles() {
+  for (const p of particles) { p.x += p.vx; p.y += p.vy; p.vy += 0.12; p.life--; }
+  particles = particles.filter(p => p.life > 0);
+}
+
+// ──────────────────────────────────────────────
+// DRAW HELPERS
+// ──────────────────────────────────────────────
+function drawBg() {
+  ctx.fillStyle = '#000010';
+  ctx.fillRect(0, 0, W, H);
+  STARS.forEach(s => {
+    const t = Math.sin(fc * 0.018 + s.b * 22) * 0.35 + 0.65;
+    ctx.fillStyle = `rgba(255,255,255,${(t * s.b).toFixed(2)})`;
+    ctx.fillRect(s.x, s.y, s.s, s.s);
+  });
+}
+
+function drawHUD() {
+  ctx.font = 'bold 17px "Courier New",monospace';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#888'; ctx.fillText('SCORE', 18, 27);
+  ctx.fillStyle = '#fff'; ctx.fillText(String(score).padStart(5, '0'), 18, 48);
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#888'; ctx.fillText('HI-SCORE', W / 2, 27);
+  ctx.fillStyle = '#ff8800'; ctx.fillText(String(hi).padStart(5, '0'), W / 2, 48);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#888'; ctx.fillText('LEVEL', W - 18, 27);
+  ctx.fillStyle = '#00ffff'; ctx.fillText(level, W - 18, 48);
+
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#888'; ctx.font = '15px "Courier New",monospace';
+  ctx.fillText('LIVES', 18, H - 14);
+  for (let i = 0; i < Math.max(0, lives); i++)
+    drawSpr(SPR.player, 72 + i * 38, H - 30, 2, '#00ff66');
+
+  // ground line
+  ctx.strokeStyle = '#00ff44'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, H - 38); ctx.lineTo(W, H - 38); ctx.stroke();
+}
+
+// ──────────────────────────────────────────────
+// DRAW: MENU
+// ──────────────────────────────────────────────
+function drawMenu() {
+  drawBg();
+
+  // Title
+  ctx.textAlign = 'center';
+  ctx.shadowColor = '#00ff00'; ctx.shadowBlur = 28;
+  ctx.font = 'bold 74px "Courier New",monospace';
+  ctx.fillStyle = '#00ff00'; ctx.fillText('SPACE', W / 2, 135);
+  ctx.shadowColor = '#ff00ff';
+  ctx.fillStyle = '#ff00ff'; ctx.fillText('VADER', W / 2, 210);
+  ctx.shadowBlur = 0;
+
+  // Show the sprite sheet image semi-transparently
+  if (sheetImg.complete && sheetImg.naturalWidth > 0) {
+    const maxW = 460, maxH = 110;
+    const scale = Math.min(maxW / sheetImg.naturalWidth, maxH / sheetImg.naturalHeight);
+    const iw = sheetImg.naturalWidth * scale, ih = sheetImg.naturalHeight * scale;
+    ctx.globalAlpha = 0.22;
+    ctx.drawImage(sheetImg, W / 2 - iw / 2, 220, iw, ih);
+    ctx.globalAlpha = 1;
+  }
+
+  // Enemy score table (use actual sprite art)
+  const table = [
+    { sp1: 'squ1', sp2: 'squ2', sc: 3, col: '#00ff44', pts: '= 30 PTS' },
+    { sp1: 'cra1', sp2: 'cra2', sc: 2, col: '#00ffff', pts: '= 20 PTS' },
+    { sp1: 'oct1', sp2: 'oct2', sc: 2, col: '#ffff00', pts: '= 10 PTS' },
+    { sp1: 'ufo',  sp2: 'ufo',  sc: 2, col: '#ff00ff', pts: '= ??? PTS' },
+  ];
+  table.forEach((row, i) => {
+    const y = 305 + i * 55;
+    const sp = SPR[fc % 60 < 30 ? row.sp1 : row.sp2];
+    const sw = sprW(sp, row.sc);
+    const sh2 = sprH(sp, row.sc);
+    drawSpr(sp, W / 2 - 120, y, row.sc, row.col);
+    ctx.fillStyle = row.col;
+    ctx.font = '18px "Courier New",monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(row.pts, W / 2 - 120 + sw + 18, y + sh2 / 2 + 6);
+  });
+  ctx.textAlign = 'center';
+
+  // Controls hint
+  ctx.font = '14px "Courier New",monospace';
+  ctx.fillStyle = '#555';
+  ctx.fillText('← → MOVE   Z / SPACE FIRE   P PAUSE', W / 2, H - 80);
+
+  // Blinking press space
+  if (Math.floor(fc / 26) % 2 === 0) {
+    ctx.font = 'bold 22px "Courier New",monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+    ctx.fillText('PRESS SPACE TO START', W / 2, H - 52);
+    ctx.shadowBlur = 0;
+  }
+  ctx.textAlign = 'left';
+}
+
+// ──────────────────────────────────────────────
+// DRAW: GAME
+// ──────────────────────────────────────────────
+function drawGame() {
+  drawBg();
+
+  // Shields
+  for (const s of shields) {
+    ctx.fillStyle = '#00ff44';
+    for (let r = 0; r < s.rows; r++)
+      for (let c = 0; c < s.cols; c++)
+        if (s.pix[r][c])
+          ctx.fillRect(s.x + c * s.pw, s.y + r * s.ph, s.pw, s.ph);
+  }
+
+  // Enemies
+  const ECOL = { squ: '#00ff44', cra: '#00ffff', oct: '#ffff00' };
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    if (e.exploding) {
+      const t = e.eT / 22;
+      ctx.globalAlpha = 1 - t;
+      const r2 = Math.floor(t * 2);
+      drawSpr(SPR.boom, e.x - 5, e.y - 5, 3, r2 === 0 ? '#ff8800' : '#ff4400');
+      ctx.globalAlpha = 1;
+      continue;
+    }
+    const key = e.type + (e.frame === 0 ? '1' : '2');
+    drawSpr(SPR[key], e.x, e.y, e.sc, ECOL[e.type]);
+  }
+
+  // Player bullets
+  for (const b of pBullets) {
+    if (!b.alive) continue;
+    ctx.fillStyle = 'rgba(150,255,150,0.3)';
+    ctx.fillRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
+    ctx.fillStyle = '#aaffaa';
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+  }
+
+  // Enemy bullets (zigzag)
+  for (const b of eBullets) {
+    if (!b.alive) continue;
+    const zx = Math.sin(b.phase) * 2.5;
+    ctx.fillStyle = '#ff4444';
+    ctx.fillRect(b.x + zx, b.y, 3, 6);
+    ctx.fillStyle = '#ff8888';
+    ctx.fillRect(b.x - zx + 1, b.y + 6, 3, 6);
+  }
+
+  // UFO
+  if (ufo) {
+    if (ufo.dying) {
+      ctx.font = 'bold 20px "Courier New",monospace';
+      ctx.fillStyle = '#ff00ff';
+      ctx.textAlign = 'center';
+      ctx.globalAlpha = Math.max(0, 1 - ufo.dieT / 55);
+      ctx.fillText(ufo.pts + ' PTS', ufo.x + ufo.w / 2, ufo.y + ufo.h / 2 + 6);
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'left';
+    } else {
+      const blink = fc % 10 < 5;
+      drawSpr(SPR.ufo, ufo.x, ufo.y, 3, blink ? '#ff00ff' : '#cc00cc');
+    }
+  }
+
+  // Player
+  if (pDying) {
+    for (const p of particles) {
+      ctx.globalAlpha = p.life / p.max;
+      ctx.fillStyle = p.col;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    }
+    ctx.globalAlpha = 1;
+  } else if (player.alive) {
+    drawSpr(SPR.player, player.x, player.y, player.sc, '#00ff66');
+  }
+
+  drawHUD();
+
+  // Pause overlay
+  if (state === 'paused') {
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 44px "Courier New",monospace';
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 12;
+    ctx.fillText('PAUSED', W / 2, H / 2);
+    ctx.font = '18px "Courier New",monospace';
+    ctx.fillStyle = '#aaa'; ctx.shadowBlur = 0;
+    ctx.fillText('PRESS P TO RESUME', W / 2, H / 2 + 46);
+    ctx.textAlign = 'left';
+  }
+}
+
+// ──────────────────────────────────────────────
+// DRAW: GAME OVER
+// ──────────────────────────────────────────────
+function drawGameOver() {
+  drawBg();
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 62px "Courier New",monospace';
+  ctx.shadowColor = '#ff0000'; ctx.shadowBlur = 24;
+  ctx.fillStyle = '#ff0000'; ctx.fillText('GAME OVER', W / 2, H / 2 - 55);
+  ctx.shadowBlur = 0;
+  ctx.font = '26px "Courier New",monospace';
+  ctx.fillStyle = '#ffff00'; ctx.fillText('SCORE: ' + score, W / 2, H / 2 + 15);
+  ctx.fillStyle = '#ff8800'; ctx.fillText('HI-SCORE: ' + hi, W / 2, H / 2 + 52);
+  if (Math.floor(fc / 26) % 2 === 0) {
+    ctx.font = '20px "Courier New",monospace';
+    ctx.fillStyle = '#aaa'; ctx.fillText('PRESS SPACE TO PLAY AGAIN', W / 2, H - 50);
+  }
+  ctx.textAlign = 'left';
+}
+
+// ──────────────────────────────────────────────
+// DRAW: LEVEL COMPLETE
+// ──────────────────────────────────────────────
+function drawLevelComplete() {
+  drawBg();
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 50px "Courier New",monospace';
+  ctx.fillStyle = '#00ffff';
+  ctx.shadowColor = '#00ffff'; ctx.shadowBlur = 20;
+  ctx.fillText('LEVEL ' + level + ' CLEAR!', W / 2, H / 2 - 20);
+  ctx.shadowBlur = 0;
+  ctx.font = '22px "Courier New",monospace';
+  ctx.fillStyle = '#ffffff'; ctx.fillText('GET READY...', W / 2, H / 2 + 35);
+  ctx.textAlign = 'left';
+}
+
+// ──────────────────────────────────────────────
+// MAIN LOOP
+// ──────────────────────────────────────────────
+function loop() {
+  update();
+  if (state === 'menu')          drawMenu();
+  else if (state === 'gameover') drawGameOver();
+  else if (state === 'levelcomplete') drawLevelComplete();
+  else                           drawGame();
+  requestAnimationFrame(loop);
+}
+
+// ──────────────────────────────────────────────
+// INPUT
+// ──────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  keys[e.key] = true;
+  if (e.key === ' ' || e.key === 'Enter') {
+    initAudio();
+    if (state === 'menu') { state = 'playing'; initGame(); }
+    else if (state === 'gameover') { state = 'playing'; initGame(); }
+    e.preventDefault();
+  }
+  if ((e.key === 'p' || e.key === 'P') && (state === 'playing' || state === 'paused'))
+    state = state === 'playing' ? 'paused' : 'playing';
+});
+document.addEventListener('keyup', e => { keys[e.key] = false; });
+
+loop();
+</script>
+</body>
+</html>
