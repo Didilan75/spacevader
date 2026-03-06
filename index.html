@@ -57,6 +57,11 @@ const SFX = {
 const sheetImg = new Image();
 sheetImg.src = 'spacevader charecters.png';
 
+// Player character image
+const playerImg = new Image();
+playerImg.src = 'masterofdisaster.png';
+const PLAYER_W = 56, PLAYER_H = 64; // display size in game
+
 // ──────────────────────────────────────────────
 // PIXEL ART SPRITES  (inspired by the image chars)
 // Each string row must have the same length.
@@ -282,11 +287,10 @@ function initLevel() {
   shields = [];
   for (let i = 0; i < 4; i++) shields.push(makeShield(110 + i * 175, H - 130));
 
-  const ps = SPR.player, psc = 3;
   player = {
-    x: W / 2 - sprW(ps, psc) / 2,
-    y: H - 68,
-    w: sprW(ps, psc), h: sprH(ps, psc), sc: psc,
+    x: W / 2 - PLAYER_W / 2,
+    y: H - 74,
+    w: PLAYER_W, h: PLAYER_H,
     alive: true,
   };
 
@@ -322,7 +326,7 @@ function update() {
   // ── Player shoot ──
   pCooldown--;
   if ((keys[' '] || keys['z']) && pCooldown <= 0 && pBullets.filter(b => b.alive).length < 1) {
-    pBullets.push({ x: player.x + player.w / 2 - 1, y: player.y - 10, w: 3, h: 14, dy: -11, alive: true });
+    pBullets.push({ x: player.x + player.w / 2 - 1, y: player.y - 4, w: 3, h: 14, dy: -11, alive: true });
     SFX.shoot();
     pCooldown = 12;
   }
@@ -536,8 +540,13 @@ function drawHUD() {
   ctx.textAlign = 'left';
   ctx.fillStyle = '#888'; ctx.font = '15px "Courier New",monospace';
   ctx.fillText('LIVES', 18, H - 14);
-  for (let i = 0; i < Math.max(0, lives); i++)
-    drawSpr(SPR.player, 72 + i * 38, H - 30, 2, '#00ff66');
+  for (let i = 0; i < Math.max(0, lives); i++) {
+    if (playerImg.complete && playerImg.naturalWidth > 0) {
+      ctx.drawImage(playerImg, 72 + i * 36, H - 34, 24, 28);
+    } else {
+      drawSpr(SPR.player, 72 + i * 38, H - 30, 2, '#00ff66');
+    }
+  }
 
   // ground line
   ctx.strokeStyle = '#00ff44'; ctx.lineWidth = 2;
@@ -680,7 +689,12 @@ function drawGame() {
     }
     ctx.globalAlpha = 1;
   } else if (player.alive) {
-    drawSpr(SPR.player, player.x, player.y, player.sc, '#00ff66');
+    if (playerImg.complete && playerImg.naturalWidth > 0) {
+      ctx.drawImage(playerImg, player.x, player.y, player.w, player.h);
+    } else {
+      // fallback pixel art until image loads
+      drawSpr(SPR.player, player.x, player.y, 3, '#00ff66');
+    }
   }
 
   drawHUD();
