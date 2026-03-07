@@ -38,12 +38,32 @@ function beep(freq, dur, type = 'square', vol = 0.18) {
   o.connect(g); g.connect(ac.destination);
   o.start(); o.stop(ac.currentTime + dur);
 }
-const maisyAudio = new Audio('maisy_blast.mp3');
+// Maisy voice lines compilation — each entry: [startSeconds, durationSeconds]
+// Update these timestamps to match the actual file!
+const MAISY_CLIPS = [
+  [0.0,  2.2],
+  [2.5,  2.0],
+  [4.8,  1.8],
+  [7.0,  2.5],
+  [9.8,  2.0],
+  [12.1, 2.3],
+  [14.7, 2.0],
+  [17.0, 2.5],
+  [19.8, 2.2],
+  [22.3, 2.0],
+];
+
+const maisyAudio = new Audio('Maisie Voice Lines _ Brawl Stars.mp3');
 const buzzAudio  = new Audio('buzz_nooo.mp3');
+let maisyClipTimer = null;
 
 function playMaisyVoice() {
-  maisyAudio.currentTime = 0;
+  const clip = MAISY_CLIPS[Math.floor(Math.random() * MAISY_CLIPS.length)];
+  if (maisyClipTimer) clearTimeout(maisyClipTimer);
+  maisyAudio.pause();
+  maisyAudio.currentTime = clip[0];
   maisyAudio.play();
+  maisyClipTimer = setTimeout(() => maisyAudio.pause(), clip[1] * 1000);
 }
 function playBuzzNooo() {
   buzzAudio.currentTime = 0;
@@ -391,7 +411,7 @@ function update() {
         score += e.type === 'squ' ? 30 : e.type === 'cra' ? 20 : 10;
         if (score > hi) hi = score;
         hitCount++;
-        if (hitCount % 8 === 0) playMaisyVoice();
+        playMaisyVoice();
         // speed up
         const rem = aliveEnemies().length;
         eMoveI = Math.max(5, eMoveI - Math.floor(rem < 10 ? 3 : 1));
