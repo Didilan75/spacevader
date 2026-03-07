@@ -38,32 +38,31 @@ function beep(freq, dur, type = 'square', vol = 0.18) {
   o.connect(g); g.connect(ac.destination);
   o.start(); o.stop(ac.currentTime + dur);
 }
-// Maisy voice lines compilation — each entry: [startSeconds, durationSeconds]
-// Update these timestamps to match the actual file!
-const MAISY_CLIPS = [
-  [0.0,  2.2],
-  [2.5,  2.0],
-  [4.8,  1.8],
-  [7.0,  2.5],
-  [9.8,  2.0],
-  [12.1, 2.3],
-  [14.7, 2.0],
-  [17.0, 2.5],
-  [19.8, 2.2],
-  [22.3, 2.0],
-];
+const MAISY_KILL_CLIPS = [
+  'sounds/armed-and-ready.mp3',
+  'sounds/boom-that-s-how-it-s-done.mp3',
+  'sounds/fortune-favors-the-brave.mp3',
+  'sounds/holy-smoke.mp3',
+  'sounds/i-m-amazing.mp3',
+  'sounds/i-m-gonna-snuff-you-out.mp3',
+  'sounds/i-might-be-armless-but-i-m-in-no-way-harmless.mp3',
+  'sounds/smoking.mp3',
+  'sounds/maisie-to-the-rescue.mp3',
+  'sounds/let-s-stay-calm-but-think-fast.mp3',
+  'sounds/i-ve-got-your-back.mp3',
+].map(src => new Audio(src));
 
-const maisyAudio = new Audio('Maisie Voice Lines _ Brawl Stars.mp3');
-const buzzAudio  = new Audio('buzz_nooo.mp3');
-let maisyClipTimer = null;
+const buzzAudio = new Audio('sounds/no-way.mp3');
+let lastMaisyIdx = -1;
 
 function playMaisyVoice() {
-  const clip = MAISY_CLIPS[Math.floor(Math.random() * MAISY_CLIPS.length)];
-  if (maisyClipTimer) clearTimeout(maisyClipTimer);
-  maisyAudio.pause();
-  maisyAudio.currentTime = clip[0];
-  maisyAudio.play();
-  maisyClipTimer = setTimeout(() => maisyAudio.pause(), clip[1] * 1000);
+  let idx;
+  do { idx = Math.floor(Math.random() * MAISY_KILL_CLIPS.length); }
+  while (idx === lastMaisyIdx && MAISY_KILL_CLIPS.length > 1);
+  lastMaisyIdx = idx;
+  const a = MAISY_KILL_CLIPS[idx];
+  a.currentTime = 0;
+  a.play();
 }
 function playBuzzNooo() {
   buzzAudio.currentTime = 0;
