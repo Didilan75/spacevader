@@ -38,8 +38,40 @@ function beep(freq, dur, type = 'square', vol = 0.18) {
   o.connect(g); g.connect(ac.destination);
   o.start(); o.stop(ac.currentTime + dur);
 }
+function playMaisyVoice() {
+  if (!window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance('that was a blast');
+  u.pitch = 1.35;
+  u.rate = 1.05;
+  u.volume = 1;
+  // pick a female voice if available
+  const voices = window.speechSynthesis.getVoices();
+  const female = voices.find(v => /female|zira|samantha|victoria|karen|moira|fiona/i.test(v.name));
+  if (female) u.voice = female;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+
 const SFX = {
-  shoot:    () => beep(820, 0.08, 'square', 0.15),
+  shoot: () => {
+    if (!ac) return;
+    // plasma: deep bass thump + high freq sweep
+    const o1 = ac.createOscillator(), g1 = ac.createGain();
+    o1.type = 'sine'; o1.frequency.setValueAtTime(180, ac.currentTime);
+    o1.frequency.exponentialRampToValueAtTime(60, ac.currentTime + 0.12);
+    g1.gain.setValueAtTime(0.35, ac.currentTime);
+    g1.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.13);
+    o1.connect(g1); g1.connect(ac.destination);
+    o1.start(); o1.stop(ac.currentTime + 0.13);
+
+    const o2 = ac.createOscillator(), g2 = ac.createGain();
+    o2.type = 'sawtooth'; o2.frequency.setValueAtTime(1200, ac.currentTime);
+    o2.frequency.exponentialRampToValueAtTime(400, ac.currentTime + 0.1);
+    g2.gain.setValueAtTime(0.18, ac.currentTime);
+    g2.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + 0.1);
+    o2.connect(g2); g2.connect(ac.destination);
+    o2.start(); o2.stop(ac.currentTime + 0.1);
+  },
   explode:  () => beep(140, 0.28, 'sawtooth', 0.35),
   ufo:      () => { beep(500, 0.07, 'square', 0.1); setTimeout(() => beep(700, 0.07, 'square', 0.1), 75); },
   march:    (t) => beep([110, 87, 110, 78][t % 4], 0.05, 'square', 0.1),
@@ -215,6 +247,9 @@ let ufo = null, ufoT = 0;
 // particles
 let particles = [];
 
+// hit counter for Maisy voice
+let hitCount = 0;
+
 // ──────────────────────────────────────────────
 // SHIELD CONSTRUCTION
 // ──────────────────────────────────────────────
@@ -257,7 +292,7 @@ function damageShield(sh, bx, by, rad = 1) {
 // INIT
 // ──────────────────────────────────────────────
 function initGame() {
-  score = 0; lives = 3; level = 1;
+  score = 0; lives = 3; level = 1; hitCount = 0;
   initLevel();
 }
 
@@ -357,6 +392,8 @@ function update() {
         b.alive = false; hit = true;
         score += e.type === 'squ' ? 30 : e.type === 'cra' ? 20 : 10;
         if (score > hi) hi = score;
+        hitCount++;
+        if (hitCount % 8 === 0) playMaisyVoice();
         // speed up
         const rem = aliveEnemies().length;
         eMoveI = Math.max(5, eMoveI - Math.floor(rem < 10 ? 3 : 1));
@@ -645,13 +682,24 @@ function drawGame() {
     drawSpr(SPR[key], e.x, e.y, e.sc, ECOL[e.type]);
   }
 
-  // Player bullets
+  // Player bullets (plasma)
   for (const b of pBullets) {
     if (!b.alive) continue;
-    ctx.fillStyle = 'rgba(150,255,150,0.3)';
-    ctx.fillRect(b.x - 2, b.y - 2, b.w + 4, b.h + 4);
-    ctx.fillStyle = '#aaffaa';
+    // outer glow
+    const grad = ctx.createRadialGradient(b.x + b.w/2, b.y + b.h/2, 1, b.x + b.w/2, b.y + b.h/2, b.w + 6);
+    grad.addColorStop(0, 'rgba(180,80,255,0.9)');
+    grad.addColorStop(0.4, 'rgba(80,0,255,0.5)');
+    grad.addColorStop(1, 'rgba(0,0,180,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(b.x - 6, b.y - 6, b.w + 12, b.h + 12);
+    // core
+    ctx.fillStyle = '#e0aaff';
     ctx.fillRect(b.x, b.y, b.w, b.h);
+    // pulse ring
+    const pulse = Math.sin(fc * 0.4) * 2;
+    ctx.strokeStyle = 'rgba(160,0,255,0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(b.x - pulse, b.y - pulse, b.w + pulse*2, b.h + pulse*2);
   }
 
   // Enemy bullets (zigzag)
