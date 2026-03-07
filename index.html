@@ -38,18 +38,16 @@ function beep(freq, dur, type = 'square', vol = 0.18) {
   o.connect(g); g.connect(ac.destination);
   o.start(); o.stop(ac.currentTime + dur);
 }
+const maisyAudio = new Audio('maisy_blast.mp3');
+const buzzAudio  = new Audio('buzz_nooo.mp3');
+
 function playMaisyVoice() {
-  if (!window.speechSynthesis) return;
-  const u = new SpeechSynthesisUtterance('that was a blast');
-  u.pitch = 1.35;
-  u.rate = 1.05;
-  u.volume = 1;
-  // pick a female voice if available
-  const voices = window.speechSynthesis.getVoices();
-  const female = voices.find(v => /female|zira|samantha|victoria|karen|moira|fiona/i.test(v.name));
-  if (female) u.voice = female;
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(u);
+  maisyAudio.currentTime = 0;
+  maisyAudio.play();
+}
+function playBuzzNooo() {
+  buzzAudio.currentTime = 0;
+  buzzAudio.play();
 }
 
 const SFX = {
@@ -473,6 +471,7 @@ function update() {
         pDying = true; pDyTimer = 0;
         player.alive = false;
         spawnParticles(player.x + player.w / 2, player.y + player.h / 2);
+        playBuzzNooo();
         SFX.die(); continue;
       }
     }
